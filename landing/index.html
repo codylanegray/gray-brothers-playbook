@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vanity Light Opening</title>
+<style>
+  :root{
+    /* Room + light colours — tweak these to restyle the whole opening */
+    --room-center:#8C5440;
+    --room-edge:#3E2219;
+    --light:255,206,150;      /* warm vanity bulb (rgb) */
+    --light-hot:255,236,205;  /* core of the glow (rgb) */
+
+    /* Panel sizing: every panel shares one width, heights step up left → right */
+    --w:min(26vw, 21vh);
+    --gap:clamp(12px, 4.5vw, 96px);
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--room-edge);
+    overflow:hidden;
+  }
+
+  .opening{
+    position:relative;
+    height:100vh;
+    height:100svh;
+    display:flex;
+    justify-content:center;
+    align-items:flex-end;          /* panels rest on the bottom edge, like the sketch */
+    gap:var(--gap);
+    background:radial-gradient(120% 90% at 50% 70%, var(--room-center) 0%, var(--room-edge) 75%);
+    isolation:isolate;
+  }
+
+  @property --edge{ syntax:"<number>"; inherits:false; initial-value:0; }
+
+  /* Ambient wash the room picks up around a lit panel */
+  .spill{
+    position:absolute; z-index:-1; pointer-events:none;
+    left:50%; bottom:0;
+    width:calc(var(--w) * 4); height:150%;
+    transform:translateX(-50%);
+    background:radial-gradient(closest-side, rgba(var(--light),.20), transparent);
+    opacity:0;
+  }
+
+  .panel{
+    position:relative;
+    width:var(--w);
+    flex:none;
+  }
+  .panel:nth-child(1){ height:calc(var(--w) * 2.6); }  /* left  – lowest  */
+  .panel:nth-child(2){ height:calc(var(--w) * 3.2); }  /* middle         */
+  .panel:nth-child(3){ height:calc(var(--w) * 3.9); }  /* right – tallest */
+
+  /* The backlight: a halo sitting behind the photo */
+  .glow{
+    position:absolute; inset:0; z-index:0;
+    border-radius:4px;
+    opacity:0;
+    box-shadow:
+      0 0 calc(var(--w)*.06) calc(var(--w)*.03) rgba(var(--light-hot),.95),
+      0 0 calc(var(--w)*.20) calc(var(--w)*.08) rgba(var(--light),.75),
+      0 0 calc(var(--w)*.55) calc(var(--w)*.18) rgba(var(--light),.38),
+      0 0 calc(var(--w)*1.1) calc(var(--w)*.30) rgba(var(--light),.16);
+    will-change:opacity;
+  }
+
+  .photo{
+    position:relative; z-index:1;
+    width:100%; height:100%;
+    overflow:hidden;
+    border-radius:2px;
+    background:#d9cbbd;
+  }
+  .photo img{
+    display:block;
+    width:100%; height:100%;
+    object-fit:cover;
+    object-position:50% 0%;        /* keep faces in frame */
+    filter:brightness(.62) saturate(.8);
+    will-change:filter;
+  }
+  /* Light catching the mirror edge when the panel is lit */
+  .photo::after{
+    content:""; position:absolute; inset:0;
+    box-shadow:inset 0 0 calc(var(--w)*.10) rgba(var(--light-hot),.55);
+    opacity:var(--edge,0);
+    pointer-events:none;
+  }
+
+  /* Room fades up from dark on load */
+  .opening{ animation:roomIn 1.2s ease-out both; }
+  @keyframes roomIn{ from{opacity:0} to{opacity:1} }
+
+  /* Reduced motion: skip the sequence, show the finished state */
+  @media (prefers-reduced-motion: reduce){
+    .opening{ animation:none; }
+    .glow{ opacity:1; }
+    .spill{ opacity:1; }
+    .photo img{ filter:brightness(1.03) saturate(1); }
+    .photo::after{ --edge:1; }
+  }
+</style>
+</head>
+<body>
+  <main class="opening" aria-label="Opening">
+    <figure class="panel">
+      <div class="spill" aria-hidden="true"></div>
+      <div class="glow" aria-hidden="true"></div>
+      <div class="photo"><img src="images/01-morning.jpg" alt="Young girl with messy morning hair smiling in the bathroom mirror"></div>
+    </figure>
+
+    <figure class="panel">
+      <div class="spill" aria-hidden="true"></div>
+      <div class="glow" aria-hidden="true"></div>
+      <div class="photo"><img src="images/02-brushing.jpg" alt="Teen girl brushing her long hair with a round brush"></div>
+    </figure>
+
+    <figure class="panel">
+      <div class="spill" aria-hidden="true"></div>
+      <div class="glow" aria-hidden="true"></div>
+      <div class="photo"><img src="images/03-styled.jpg" alt="Woman smiling with long, glossy styled waves"></div>
+    </figure>
+  </main>
+
+<script>
+(() => {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  /* ---- Timeline (seconds) ----------------------------------------
+     Each light: fade up → hold → fade out, then the next one picks up
+     just as the previous dims, so the light "travels" left → right.
+     Finale: all three come up together and stay on.                */
+  const START   = 1.0;   // wait for the room to fade in
+  const UP      = 0.9;   // fade-in length
+  const HOLD    = 0.9;   // time fully lit
+  const DOWN    = 0.9;   // fade-out length
+  const HANDOFF = 0.35;  // overlap: next light starts before the last is fully out
+  const PAUSE   = 0.5;   // beat of darkness before the finale
+  const FINALE  = 1.6;   // all-three fade-up length
+
+  const step     = UP + HOLD + DOWN - HANDOFF;
+  const finaleAt = START + step * 2 + UP + HOLD + DOWN + PAUSE;
+  const total    = finaleAt + FINALE;
+
+  const panels  = [...document.querySelectorAll('.panel')];
+  const ease    = 'cubic-bezier(.45,0,.25,1)';
+
+  // Build keyframes for one light given its solo slot start time
+  const frames = (t0, on, off) => {
+    const k = (t, v) => ({ offset: Math.min(t / total, 1), ...v, easing: ease });
+    return [
+      k(0, off),
+      k(t0, off),
+      k(t0 + UP, on),
+      k(t0 + UP + HOLD, on),
+      k(t0 + UP + HOLD + DOWN, off),
+      k(finaleAt, off),
+      k(total, on),
+    ];
+  };
+
+  const opts = { duration: total * 1000, fill: 'forwards' };
+
+  panels.forEach((panel, i) => {
+    const t0 = START + i * step;
+    panel.querySelector('.spill').animate(
+      frames(t0, { opacity: 1 }, { opacity: 0 }), opts);
+    panel.querySelector('.glow').animate(
+      frames(t0, { opacity: 1 }, { opacity: 0 }), opts);
+    panel.querySelector('img').animate(
+      frames(t0,
+        { filter: 'brightness(1.03) saturate(1)' },
+        { filter: 'brightness(.62) saturate(.8)' }), opts);
+    panel.querySelector('.photo').animate(
+      frames(t0, { '--edge': 1 }, { '--edge': 0 }), opts);
+  });
+
+})();
+</script>
+</body>
+</html>
